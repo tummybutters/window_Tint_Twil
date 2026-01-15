@@ -16,7 +16,7 @@
     ],
     "functions": {
         "api/index.ts": {
-            "runtime": "nodejs20.x",
+            "runtime": "nodejs22.x",
             "maxDuration": 30
         }
     },
