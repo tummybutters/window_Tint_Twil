@@ -1,12 +1,26 @@
 import { z } from "zod";
 
+// Hardcoded defaults (not secrets, just config)
+const DEFAULTS = {
+  PORT: "5000",
+  TWILIO_FORWARD_TIMEOUT_SECONDS: 30,
+  TWILIO_CALL_MIN_DURATION_SECONDS: 20,
+  AI_REPLY_DEBOUNCE_MS: 8000,
+  OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+  PUBLIC_BOOKING_URL: "https://obsidianautoworksoc.com/booking.html",
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.string().default("5000"),
+  PORT: z.string().default(DEFAULTS.PORT),
+
+  // Supabase - required
   DATABASE_URL: z.string().min(1),
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_JWT_SECRET: z.string().min(1),
+
+  // Twilio - required
   TWILIO_ACCOUNT_SID: z.string().min(1),
   TWILIO_API_KEY: z.string().min(1),
   TWILIO_API_SECRET: z.string().min(1),
@@ -15,18 +29,25 @@ const envSchema = z.object({
   TWILIO_CONVERSATIONS_API_KEY: z.string().min(1),
   TWILIO_CONVERSATIONS_API_SECRET: z.string().min(1),
   TWILIO_CONVERSATIONS_SERVICE_SID: z.string().optional(),
+
+  // Call handling - optional with defaults
   TWILIO_FORWARD_TO_NUMBER: z.string().optional(),
-  TWILIO_FORWARD_TIMEOUT_SECONDS: z.string().default("30"),
-  TWILIO_CALL_MIN_DURATION_SECONDS: z.string().default("20"),
-  AI_INTEGRATIONS_OPENAI_BASE_URL: z.string().url().optional(),
-  AI_INTEGRATIONS_OPENAI_API_KEY: z.string().min(1).optional(),
-  AI_REPLY_DEBOUNCE_MS: z.string().default("8000"),
+
+  // AI - at least one required
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+
+  // Notifications - optional
   BUSINESS_OWNER_READY_TO_BOOK_PHONE: z.string().optional(),
   PRIMARY_OPERATOR_PHONE: z.string().optional(),
+
+  // Public URLs - optional (uses defaults)
   PUBLIC_APP_URL: z.string().url().optional(),
   PUBLIC_BOOKING_URL: z.string().url().optional(),
-  OPENROUTER_API_KEY: z.string().min(1).optional(),
-  OPENAI_API_KEY: z.string().min(1).optional(), // For Whisper transcription
+
+  // Legacy/optional (for backwards compatibility)
+  AI_INTEGRATIONS_OPENAI_BASE_URL: z.string().url().optional(),
+  AI_INTEGRATIONS_OPENAI_API_KEY: z.string().min(1).optional(),
   INTEGRATION_API_KEY: z.string().optional(),
 });
 
@@ -44,24 +65,18 @@ if (!parsed.success) {
   throw new Error("Invalid environment configuration");
 }
 
-const callForwardTimeoutSeconds = Number.parseInt(
-  parsed.data.TWILIO_FORWARD_TIMEOUT_SECONDS,
-  10,
-);
-const callMinDurationSeconds = Number.parseInt(
-  parsed.data.TWILIO_CALL_MIN_DURATION_SECONDS,
-  10,
-);
-const aiReplyDebounceMs = Number.parseInt(parsed.data.AI_REPLY_DEBOUNCE_MS, 10);
-
 export const env = {
   ...parsed.data,
-  callForwardTimeoutSeconds: Number.isNaN(callForwardTimeoutSeconds)
-    ? 30
-    : callForwardTimeoutSeconds,
-  callMinDurationSeconds: Number.isNaN(callMinDurationSeconds)
-    ? 20
-    : callMinDurationSeconds,
-  aiReplyDebounceMs: Number.isNaN(aiReplyDebounceMs) ? 8000 : aiReplyDebounceMs,
+
+  // Hardcoded defaults
+  callForwardTimeoutSeconds: DEFAULTS.TWILIO_FORWARD_TIMEOUT_SECONDS,
+  callMinDurationSeconds: DEFAULTS.TWILIO_CALL_MIN_DURATION_SECONDS,
+  aiReplyDebounceMs: DEFAULTS.AI_REPLY_DEBOUNCE_MS,
+  openRouterBaseUrl: DEFAULTS.OPENROUTER_BASE_URL,
+
+  // Use provided value or default
+  publicBookingUrl: parsed.data.PUBLIC_BOOKING_URL ?? DEFAULTS.PUBLIC_BOOKING_URL,
+
+  // Computed
   isProduction: parsed.data.NODE_ENV === "production",
 };

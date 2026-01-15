@@ -1,17 +1,8 @@
 import { env } from "./env";
 
-const fallbackBookingUrl = "https://www.hardyswashnwax.com/";
-const bookingUrl = (() => {
-  if (env.PUBLIC_BOOKING_URL) return env.PUBLIC_BOOKING_URL;
-  if (env.PUBLIC_APP_URL) {
-    try {
-      return new URL("/book", env.PUBLIC_APP_URL).toString();
-    } catch (error) {
-      console.error("Invalid PUBLIC_APP_URL; falling back to website.", error);
-    }
-  }
-  return fallbackBookingUrl;
-})();
+// Booking URL - uses hardcoded default from env.ts if not overridden
+const bookingUrl = env.publicBookingUrl;
+
 
 export const company = {
   name: "Obsidian Auto Works",
