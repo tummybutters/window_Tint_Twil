@@ -82,7 +82,7 @@ export const conversationSchema = z.object({
   conversationSid: z.string().optional().nullable(),
   name: z.string().optional().nullable(),
   lastMessage: z.string().optional().nullable(),
-  lastActivity: z.coerce.date(),
+  lastActivity: z.coerce.date().optional(),
   unreadCount: z.string().default("0"),
   aiEnabled: z.boolean().default(true),
   readyToBook: z.boolean().default(false),
@@ -93,7 +93,6 @@ export const conversationSchema = z.object({
 
 export const insertConversationSchema = conversationSchema.omit({
   id: true,
-  lastActivity: true,
 });
 
 export type Conversation = z.infer<typeof conversationSchema>;
@@ -105,7 +104,7 @@ export const messageSchema = z.object({
   id: z.string().uuid(),
   conversationId: z.string().uuid(),
   text: z.string().min(1),
-  timestamp: z.coerce.date(),
+  timestamp: z.coerce.date().optional(),
   direction: z.string(), // 'inbound' | 'outbound'
   status: z.string().default("sent"),
   mediaUrl: z.string().optional().nullable(),
@@ -116,7 +115,6 @@ export const messageSchema = z.object({
 
 export const insertMessageSchema = messageSchema.omit({
   id: true,
-  timestamp: true,
 });
 
 export type Message = z.infer<typeof messageSchema>;
@@ -135,12 +133,11 @@ export const leadAssessmentSchema = z.object({
   tintPreference: z.string().optional().nullable(),
   coverage: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  lastUpdated: z.coerce.date(),
+  lastUpdated: z.coerce.date().optional(),
 });
 
 export const insertLeadAssessmentSchema = leadAssessmentSchema.omit({
   id: true,
-  lastUpdated: true,
 });
 
 export type LeadAssessment = z.infer<typeof leadAssessmentSchema>;
@@ -154,12 +151,11 @@ export const workflowStateSchema = z.object({
   stage: z.string().default("new"),
   intent: z.string().optional().nullable(),
   data: z.any(), // WorkflowData
-  lastUpdated: z.coerce.date(),
+  lastUpdated: z.coerce.date().optional(),
 });
 
 export const insertWorkflowStateSchema = workflowStateSchema.omit({
   id: true,
-  lastUpdated: true,
 });
 
 export type WorkflowState = z.infer<typeof workflowStateSchema>;
@@ -178,12 +174,11 @@ export const bookingSchema = z.object({
   timezone: z.string().optional().nullable(),
   payload: z.any(),
   jobValue: z.string().optional().nullable(), // Store as string for decimal
-  createdAt: z.coerce.date(),
+  createdAt: z.coerce.date().optional(),
 });
 
 export const insertBookingSchema = bookingSchema.omit({
   id: true,
-  createdAt: true,
 });
 
 export type Booking = z.infer<typeof bookingSchema>;
@@ -205,12 +200,11 @@ export const callSchema = z.object({
   transcriptionStatus: z.string().default("pending"),
   startedAt: z.coerce.date().optional().nullable(),
   endedAt: z.coerce.date().optional().nullable(),
-  createdAt: z.coerce.date(),
+  createdAt: z.coerce.date().optional(),
 });
 
 export const insertCallSchema = callSchema.omit({
   id: true,
-  createdAt: true,
 });
 
 export type Call = z.infer<typeof callSchema>;
