@@ -1,9 +1,5 @@
 {
     "version": 2,
-    "buildCommand": "npm run build:vercel",
-    "outputDirectory": "dist",
-    "installCommand": "npm install",
-    "framework": "vite",
     "rewrites": [
         {
             "source": "/api/(.*)",
@@ -14,7 +10,7 @@
             "destination": "/api"
         },
         {
-            "source": "/(.*)",
+            "source": "/((?!api|webhook|assets|_next|favicon.ico).*)",
             "destination": "/index.html"
         }
     ],
