@@ -14,12 +14,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.string().default(DEFAULTS.PORT),
 
-  // Database - just need the connection string
-  DATABASE_URL: z.string().min(1),
-
   // Supabase - accept either VITE_ or non-VITE prefix
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_JWT_SECRET: z.string().min(1).optional(),
   VITE_SUPABASE_URL: z.string().url().optional(),
   VITE_SUPABASE_ANON_KEY: z.string().min(1).optional(),
@@ -65,6 +63,7 @@ if (!parsed.success) {
 // Resolve Supabase vars - use either prefix
 const supabaseUrl = parsed.data.SUPABASE_URL ?? parsed.data.VITE_SUPABASE_URL ?? "";
 const supabaseAnonKey = parsed.data.SUPABASE_ANON_KEY ?? parsed.data.VITE_SUPABASE_ANON_KEY ?? "";
+const supabaseServiceRoleKey = parsed.data.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const supabaseJwtSecret = parsed.data.SUPABASE_JWT_SECRET ?? "";
 
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -77,6 +76,7 @@ export const env = {
   // Normalized Supabase config (works with either prefix)
   SUPABASE_URL: supabaseUrl,
   SUPABASE_ANON_KEY: supabaseAnonKey,
+  SUPABASE_SERVICE_ROLE_KEY: supabaseServiceRoleKey,
   SUPABASE_JWT_SECRET: supabaseJwtSecret,
 
   // Hardcoded defaults

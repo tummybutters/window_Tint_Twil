@@ -1,5 +1,9 @@
+-- Obsidian Auto Works - AI SMS System Database Schema
+-- Run this in Supabase SQL Editor
+
 create extension if not exists "pgcrypto";
 
+-- Conversations table - one per phone number
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   phone text not null unique,
@@ -15,6 +19,7 @@ create table if not exists conversations (
   needs_reply boolean not null default false
 );
 
+-- Messages table
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references conversations(id) on delete cascade,
@@ -28,6 +33,7 @@ create table if not exists messages (
   source text
 );
 
+-- Lead assessments table
 create table if not exists lead_assessments (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null unique references conversations(id) on delete cascade,
@@ -35,10 +41,14 @@ create table if not exists lead_assessments (
   probability text,
   est_value text,
   sentiment text,
+  vehicle_info text,
+  tint_preference text,
+  coverage text,
   notes text,
   last_updated timestamp not null default now()
 );
 
+-- Workflow states table
 create table if not exists workflow_states (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null unique references conversations(id) on delete cascade,
@@ -48,6 +58,7 @@ create table if not exists workflow_states (
   last_updated timestamp not null default now()
 );
 
+-- Bookings table
 create table if not exists bookings (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references conversations(id) on delete cascade,
@@ -62,6 +73,7 @@ create table if not exists bookings (
   created_at timestamp not null default now()
 );
 
+-- Calls table for recordings and transcriptions
 create table if not exists calls (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references conversations(id) on delete cascade,
@@ -79,6 +91,7 @@ create table if not exists calls (
   created_at timestamp not null default now()
 );
 
+-- Indexes for performance
 create index if not exists idx_messages_conversation_id on messages(conversation_id);
 create index if not exists idx_messages_timestamp on messages(timestamp);
 create unique index if not exists idx_messages_external_source on messages(external_id, source);

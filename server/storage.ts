@@ -14,15 +14,8 @@ import {
   type InsertBooking,
   type Call,
   type CallExtractedData,
-  conversations,
-  messages,
-  leadAssessments,
-  workflowStates,
-  bookings,
-  calls
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, asc, and } from "drizzle-orm";
+import { supabase } from "./lib/supabase";
 
 type WorkflowStateInput = {
   conversationId: string;
@@ -33,7 +26,6 @@ type WorkflowStateInput = {
 
 type WorkflowStateUpdate = Partial<WorkflowStateInput>;
 
-// Custom type for creating calls to avoid JSONB type inference issues
 type CreateCallInput = {
   conversationId: string;
   callSid?: string | null;
@@ -65,14 +57,14 @@ export interface IStorage {
   updateConversation(phone: string, updates: Partial<InsertConversation>): Promise<Conversation>;
   updateConversationBySid(conversationSid: string, updates: Partial<InsertConversation>): Promise<Conversation>;
   deleteConversation(phone: string): Promise<void>;
-  
+
   // Messages
   getMessagesByConversationId(conversationId: string): Promise<Message[]>;
   getMessagesByPhone(phone: string): Promise<Message[]>;
   getMessageByExternalId(source: string, externalId: string): Promise<Message | undefined>;
   createMessage(message: InsertMessage): Promise<Message>;
   updateMessageStatus(messageId: string, status: string): Promise<Message>;
-  
+
   // Lead Assessments
   getAssessmentByConversationId(conversationId: string): Promise<LeadAssessment | undefined>;
   getAssessmentByPhone(phone: string): Promise<LeadAssessment | undefined>;
@@ -104,341 +96,371 @@ export interface IStorage {
   ): Promise<Call>;
 }
 
+// Helper to convert snake_case (DB) to camelCase (App)
+function fromDb<T>(row: any): T {
+  if (!row) return row;
+  const res: any = {};
+  for (const key in row) {
+    const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+    res[camelKey] = row[key];
+  }
+  return res as T;
+}
+
+// Helper to convert camelCase (App) to snake_case (DB)
+function toDb(obj: any): any {
+  if (!obj) return obj;
+  const res: any = {};
+  for (const key in obj) {
+    const snakeKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    res[snakeKey] = obj[key];
+  }
+  return res;
+}
+
 export class DatabaseStorage implements IStorage {
   // Conversations
   async getAllConversations(): Promise<ConversationWithAssessment[]> {
-    const result = await db
-      .select({
-        conversation: conversations,
-        assessment: leadAssessments
-      })
-      .from(conversations)
-      .leftJoin(leadAssessments, eq(conversations.id, leadAssessments.conversationId))
-      .orderBy(desc(conversations.lastActivity));
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("*, lead_assessments(*)")
+      .order("last_activity", { ascending: false });
 
-    return result.map(row => ({
-      ...row.conversation,
-      assessment: row.assessment || undefined
-    }));
+    if (error) throw error;
+
+    return (data || []).map((row: any) => {
+      const { lead_assessments, ...conv } = row;
+      return {
+        ...fromDb<Conversation>(conv),
+        assessment: lead_assessments ? fromDb<LeadAssessment>(lead_assessments) : undefined,
+      };
+    });
   }
 
   async getConversationByPhone(phone: string): Promise<Conversation | undefined> {
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.phone, phone));
-    return conversation || undefined;
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("phone", phone)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Conversation>(data) : undefined;
   }
 
   async getConversationById(id: string): Promise<Conversation | undefined> {
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id));
-    return conversation || undefined;
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Conversation>(data) : undefined;
   }
 
   async getConversationBySid(conversationSid: string): Promise<Conversation | undefined> {
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.conversationSid, conversationSid));
-    return conversation || undefined;
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("conversation_sid", conversationSid)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Conversation>(data) : undefined;
   }
 
   async createConversation(insertConversation: InsertConversation): Promise<Conversation> {
-    const [conversation] = await db
-      .insert(conversations)
-      .values(insertConversation)
-      .returning();
-    return conversation;
+    const { data, error } = await supabase
+      .from("conversations")
+      .insert(toDb(insertConversation))
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Conversation>(data);
   }
 
   async upsertConversationByPhone(
     insertConversation: InsertConversation,
     updates: Partial<InsertConversation>,
   ): Promise<Conversation> {
-    const [conversation] = await db
-      .insert(conversations)
-      .values(insertConversation)
-      .onConflictDoUpdate({
-        target: conversations.phone,
-        set: updates,
-      })
-      .returning();
-    return conversation;
+    const { data, error } = await supabase
+      .from("conversations")
+      .upsert(
+        { ...toDb(insertConversation), phone: insertConversation.phone },
+        { onConflict: "phone" }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Conversation>(data);
   }
 
   async updateConversation(phone: string, updates: Partial<InsertConversation>): Promise<Conversation> {
-    const [conversation] = await db
-      .update(conversations)
-      .set(updates)
-      .where(eq(conversations.phone, phone))
-      .returning();
-    
-    if (!conversation) {
-      throw new Error('Conversation not found');
-    }
-    return conversation;
+    const { data, error } = await supabase
+      .from("conversations")
+      .update(toDb(updates))
+      .eq("phone", phone)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Conversation>(data);
   }
 
   async updateConversationBySid(conversationSid: string, updates: Partial<InsertConversation>): Promise<Conversation> {
-    const [conversation] = await db
-      .update(conversations)
-      .set(updates)
-      .where(eq(conversations.conversationSid, conversationSid))
-      .returning();
-    
-    if (!conversation) {
-      throw new Error('Conversation not found');
-    }
-    return conversation;
+    const { data, error } = await supabase
+      .from("conversations")
+      .update(toDb(updates))
+      .eq("conversation_sid", conversationSid)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Conversation>(data);
   }
 
   async deleteConversation(phone: string): Promise<void> {
-    const conversation = await this.getConversationByPhone(phone);
-    if (!conversation) {
-      throw new Error('Conversation not found');
-    }
+    const { error } = await supabase
+      .from("conversations")
+      .delete()
+      .eq("phone", phone);
 
-    await db.delete(leadAssessments).where(eq(leadAssessments.conversationId, conversation.id));
-    await db.delete(messages).where(eq(messages.conversationId, conversation.id));
-    await db.delete(conversations).where(eq(conversations.phone, phone));
+    if (error) throw error;
   }
 
   // Messages
   async getMessagesByConversationId(conversationId: string): Promise<Message[]> {
-    return await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.timestamp));
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("timestamp", { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map(fromDb<Message>);
   }
 
   async getMessagesByPhone(phone: string): Promise<Message[]> {
-    const conversation = await this.getConversationByPhone(phone);
-    if (!conversation) return [];
-    return this.getMessagesByConversationId(conversation.id);
+    const conv = await this.getConversationByPhone(phone);
+    if (!conv) return [];
+    return this.getMessagesByConversationId(conv.id);
   }
 
   async getMessageByExternalId(source: string, externalId: string): Promise<Message | undefined> {
-    const [message] = await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.externalId, externalId), eq(messages.source, source)));
-    return message || undefined;
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("source", source)
+      .eq("external_id", externalId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Message>(data) : undefined;
   }
 
   async createMessage(insertMessage: InsertMessage): Promise<Message> {
-    const [message] = await db
-      .insert(messages)
-      .values(insertMessage)
-      .returning();
-    return message;
+    const { data, error } = await supabase
+      .from("messages")
+      .insert(toDb(insertMessage))
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Message>(data);
   }
 
   async updateMessageStatus(messageId: string, status: string): Promise<Message> {
-    const [message] = await db
-      .update(messages)
-      .set({ status })
-      .where(eq(messages.id, messageId))
-      .returning();
-    
-    if (!message) {
-      throw new Error('Message not found');
-    }
-    return message;
+    const { data, error } = await supabase
+      .from("messages")
+      .update({ status })
+      .eq("id", messageId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Message>(data);
   }
 
   // Lead Assessments
   async getAssessmentByConversationId(conversationId: string): Promise<LeadAssessment | undefined> {
-    const [assessment] = await db
-      .select()
-      .from(leadAssessments)
-      .where(eq(leadAssessments.conversationId, conversationId));
-    return assessment || undefined;
+    const { data, error } = await supabase
+      .from("lead_assessments")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<LeadAssessment>(data) : undefined;
   }
 
   async getAssessmentByPhone(phone: string): Promise<LeadAssessment | undefined> {
-    const conversation = await this.getConversationByPhone(phone);
-    if (!conversation) return undefined;
-    return this.getAssessmentByConversationId(conversation.id);
+    const conv = await this.getConversationByPhone(phone);
+    if (!conv) return undefined;
+    return this.getAssessmentByConversationId(conv.id);
   }
 
   async createOrUpdateAssessment(insertAssessment: InsertLeadAssessment): Promise<LeadAssessment> {
-    const existing = await this.getAssessmentByConversationId(insertAssessment.conversationId);
-    
-    if (existing) {
-      const [updated] = await db
-        .update(leadAssessments)
-        .set({
-          ...insertAssessment,
-          lastUpdated: new Date()
-        })
-        .where(eq(leadAssessments.conversationId, insertAssessment.conversationId))
-        .returning();
-      return updated;
-    } else {
-      const [created] = await db
-        .insert(leadAssessments)
-        .values(insertAssessment)
-        .returning();
-      return created;
-    }
+    const { data, error } = await supabase
+      .from("lead_assessments")
+      .upsert(
+        { ...toDb(insertAssessment), conversation_id: insertAssessment.conversationId },
+        { onConflict: "conversation_id" }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<LeadAssessment>(data);
   }
 
   // Workflow States
-  async getWorkflowStateByConversationId(
-    conversationId: string,
-  ): Promise<WorkflowState | undefined> {
-    const [state] = await db
+  async getWorkflowStateByConversationId(conversationId: string): Promise<WorkflowState | undefined> {
+    const { data, error } = await supabase
+      .from("workflow_states")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<WorkflowState>(data) : undefined;
+  }
+
+  async createOrUpdateWorkflowState(state: WorkflowStateInput): Promise<WorkflowState> {
+    const { data, error } = await supabase
+      .from("workflow_states")
+      .upsert(
+        { ...toDb(state), conversation_id: state.conversationId },
+        { onConflict: "conversation_id" }
+      )
       .select()
-      .from(workflowStates)
-      .where(eq(workflowStates.conversationId, conversationId));
-    return state || undefined;
+      .single();
+
+    if (error) throw error;
+    return fromDb<WorkflowState>(data);
   }
 
-  async createOrUpdateWorkflowState(
-    insertState: WorkflowStateInput,
-  ): Promise<WorkflowState> {
-    const existing = await this.getWorkflowStateByConversationId(insertState.conversationId);
+  async updateWorkflowState(conversationId: string, updates: WorkflowStateUpdate): Promise<WorkflowState> {
+    const { data, error } = await supabase
+      .from("workflow_states")
+      .update(toDb(updates))
+      .eq("conversation_id", conversationId)
+      .select()
+      .single();
 
-    if (existing) {
-      const [updated] = await db
-        .update(workflowStates)
-        .set({
-          ...insertState,
-          lastUpdated: new Date(),
-        })
-        .where(eq(workflowStates.conversationId, insertState.conversationId))
-        .returning();
-      return updated;
-    }
-
-    const [created] = await db
-      .insert(workflowStates)
-      .values(insertState)
-      .returning();
-    return created;
-  }
-
-  async updateWorkflowState(
-    conversationId: string,
-    updates: WorkflowStateUpdate,
-  ): Promise<WorkflowState> {
-    const [updated] = await db
-      .update(workflowStates)
-      .set({
-        ...updates,
-        lastUpdated: new Date(),
-      })
-      .where(eq(workflowStates.conversationId, conversationId))
-      .returning();
-
-    if (!updated) {
-      throw new Error("Workflow state not found");
-    }
-    return updated;
+    if (error) throw error;
+    return fromDb<WorkflowState>(data);
   }
 
   // Bookings
   async getBookingsByConversationId(conversationId: string): Promise<Booking[]> {
-    return await db
-      .select()
-      .from(bookings)
-      .where(eq(bookings.conversationId, conversationId))
-      .orderBy(desc(bookings.createdAt));
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map(fromDb<Booking>);
   }
 
-  async getBookingByProviderId(
-    provider: string,
-    providerBookingId: string,
-  ): Promise<Booking | undefined> {
-    const [booking] = await db
-      .select()
-      .from(bookings)
-      .where(and(eq(bookings.provider, provider), eq(bookings.providerBookingId, providerBookingId)));
-    return booking || undefined;
+  async getBookingByProviderId(provider: string, providerBookingId: string): Promise<Booking | undefined> {
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("provider", provider)
+      .eq("provider_booking_id", providerBookingId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Booking>(data) : undefined;
   }
 
   async createBooking(insertBooking: InsertBooking): Promise<Booking> {
-    const [booking] = await db
-      .insert(bookings)
-      .values(insertBooking)
-      .returning();
-    return booking;
+    const { data, error } = await supabase
+      .from("bookings")
+      .insert(toDb(insertBooking))
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Booking>(data);
   }
 
   async updateBookingJobValue(bookingId: string, jobValue: string): Promise<Booking> {
-    const [booking] = await db
-      .update(bookings)
-      .set({ jobValue })
-      .where(eq(bookings.id, bookingId))
-      .returning();
+    const { data, error } = await supabase
+      .from("bookings")
+      .update({ job_value: jobValue })
+      .eq("id", bookingId)
+      .select()
+      .single();
 
-    if (!booking) {
-      throw new Error("Booking not found");
-    }
-    return booking;
+    if (error) throw error;
+    return fromDb<Booking>(data);
   }
 
   // Calls
   async getCallsByConversationId(conversationId: string): Promise<Call[]> {
-    return await db
-      .select()
-      .from(calls)
-      .where(eq(calls.conversationId, conversationId))
-      .orderBy(desc(calls.createdAt));
+    const { data, error } = await supabase
+      .from("calls")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map(fromDb<Call>);
   }
 
   async getCallByCallSid(callSid: string): Promise<Call | undefined> {
-    const [call] = await db
-      .select()
-      .from(calls)
-      .where(eq(calls.callSid, callSid));
-    return call || undefined;
+    const { data, error } = await supabase
+      .from("calls")
+      .select("*")
+      .eq("call_sid", callSid)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? fromDb<Call>(data) : undefined;
   }
 
   async createCall(insertCall: CreateCallInput): Promise<Call> {
-    const [call] = await db
-      .insert(calls)
-      .values(insertCall as typeof calls.$inferInsert)
-      .returning();
-    return call;
+    const { data, error } = await supabase
+      .from("calls")
+      .insert(toDb(insertCall))
+      .select()
+      .single();
+
+    if (error) throw error;
+    return fromDb<Call>(data);
   }
 
   async updateCall(callId: string, updates: UpdateCallInput): Promise<Call> {
-    const [call] = await db
-      .update(calls)
-      .set(updates as Partial<typeof calls.$inferInsert>)
-      .where(eq(calls.id, callId))
-      .returning();
+    const { data, error } = await supabase
+      .from("calls")
+      .update(toDb(updates))
+      .eq("id", callId)
+      .select()
+      .single();
 
-    if (!call) {
-      throw new Error("Call not found");
-    }
-    return call;
+    if (error) throw error;
+    return fromDb<Call>(data);
   }
 
-  async updateCallTranscription(
-    callId: string,
-    transcript: string,
-    extractedData: CallExtractedData,
-  ): Promise<Call> {
-    const [call] = await db
-      .update(calls)
-      .set({
+  async updateCallTranscription(callId: string, transcript: string, extractedData: CallExtractedData): Promise<Call> {
+    const { data, error } = await supabase
+      .from("calls")
+      .update({
         transcript,
-        extractedData,
-        transcriptionStatus: "completed",
+        extracted_data: extractedData,
+        transcription_status: "completed",
       })
-      .where(eq(calls.id, callId))
-      .returning();
+      .eq("id", callId)
+      .select()
+      .single();
 
-    if (!call) {
-      throw new Error("Call not found");
-    }
-    return call;
+    if (error) throw error;
+    return fromDb<Call>(data);
   }
 }
 
