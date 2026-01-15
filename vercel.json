@@ -1,0 +1,26 @@
+{
+    "version": 2,
+    "buildCommand": "npm run build:vercel",
+    "outputDirectory": "dist",
+    "installCommand": "npm install",
+    "framework": "vite",
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/api"
+        },
+        {
+            "source": "/webhook/(.*)",
+            "destination": "/api"
+        }
+    ],
+    "functions": {
+        "api/index.ts": {
+            "runtime": "@vercel/node@3.0.0",
+            "maxDuration": 30
+        }
+    },
+    "env": {
+        "NODE_ENV": "production"
+    }
+}
